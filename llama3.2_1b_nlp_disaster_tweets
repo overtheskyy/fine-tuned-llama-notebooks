@@ -1,0 +1,259 @@
+{
+ "cells": [
+  {
+   "cell_type": "code",
+   "execution_count": 1,
+   "id": "a3ff0af7",
+   "metadata": {
+    "_cell_guid": "b1076dfc-b9ad-4769-8c92-a6c4dae69d19",
+    "_uuid": "8f2839f25d086af736a60e9eeb907d3b93b6e0e5",
+    "execution": {
+     "iopub.execute_input": "2024-10-30T20:03:42.965915Z",
+     "iopub.status.busy": "2024-10-30T20:03:42.965426Z",
+     "iopub.status.idle": "2024-10-30T20:03:44.142589Z",
+     "shell.execute_reply": "2024-10-30T20:03:44.141273Z"
+    },
+    "papermill": {
+     "duration": 1.185391,
+     "end_time": "2024-10-30T20:03:44.145512",
+     "exception": false,
+     "start_time": "2024-10-30T20:03:42.960121",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "/kaggle/input/llama-3.2/transformers/1b/1/config.json\n",
+      "/kaggle/input/llama-3.2/transformers/1b/1/README.md\n",
+      "/kaggle/input/llama-3.2/transformers/1b/1/USE_POLICY.md\n",
+      "/kaggle/input/llama-3.2/transformers/1b/1/tokenizer.json\n",
+      "/kaggle/input/llama-3.2/transformers/1b/1/tokenizer_config.json\n",
+      "/kaggle/input/llama-3.2/transformers/1b/1/LICENSE.txt\n",
+      "/kaggle/input/llama-3.2/transformers/1b/1/model.safetensors\n",
+      "/kaggle/input/llama-3.2/transformers/1b/1/special_tokens_map.json\n",
+      "/kaggle/input/llama-3.2/transformers/1b/1/.gitattributes\n",
+      "/kaggle/input/llama-3.2/transformers/1b/1/generation_config.json\n"
+     ]
+    }
+   ],
+   "source": [
+    "# This Python 3 environment comes with many helpful analytics libraries installed\n",
+    "# It is defined by the kaggle/python Docker image: https://github.com/kaggle/docker-python\n",
+    "# For example, here's several helpful packages to load\n",
+    "\n",
+    "import numpy as np # linear algebra\n",
+    "import pandas as pd # data processing, CSV file I/O (e.g. pd.read_csv)\n",
+    "\n",
+    "# Input data files are available in the read-only \"../input/\" directory\n",
+    "# For example, running this (by clicking run or pressing Shift+Enter) will list all files under the input directory\n",
+    "\n",
+    "import os\n",
+    "for dirname, _, filenames in os.walk('/kaggle/input'):\n",
+    "    for filename in filenames:\n",
+    "        print(os.path.join(dirname, filename))\n",
+    "\n",
+    "# You can write up to 20GB to the current directory (/kaggle/working/) that gets preserved as output when you create a version using \"Save & Run All\" \n",
+    "# You can also write temporary files to /kaggle/temp/, but they won't be saved outside of the current session"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 2,
+   "id": "c84c1cf4",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2024-10-30T20:03:44.154684Z",
+     "iopub.status.busy": "2024-10-30T20:03:44.153568Z",
+     "iopub.status.idle": "2024-10-30T20:06:20.177622Z",
+     "shell.execute_reply": "2024-10-30T20:06:20.176001Z"
+    },
+    "papermill": {
+     "duration": 156.031765,
+     "end_time": "2024-10-30T20:06:20.180829",
+     "exception": false,
+     "start_time": "2024-10-30T20:03:44.149064",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [],
+   "source": [
+    "%%capture\n",
+    "\n",
+    "# Install and update all the necessary Python packages\n",
+    "%pip install -U transformers \n",
+    "%pip install -U datasets \n",
+    "%pip install -U accelerate \n",
+    "%pip install -U peft \n",
+    "%pip install -U trl \n",
+    "%pip install -U bitsandbytes \n",
+    "%pip install -U wandb"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 3,
+   "id": "df9cb06a",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2024-10-30T20:06:20.189736Z",
+     "iopub.status.busy": "2024-10-30T20:06:20.189129Z",
+     "iopub.status.idle": "2024-10-30T20:06:47.549013Z",
+     "shell.execute_reply": "2024-10-30T20:06:47.547729Z"
+    },
+    "papermill": {
+     "duration": 27.367831,
+     "end_time": "2024-10-30T20:06:47.552008",
+     "exception": false,
+     "start_time": "2024-10-30T20:06:20.184177",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [],
+   "source": [
+    "# Load the Python packages and functions for fine-tuning and evaluation\n",
+    "from transformers import (\n",
+    "    AutoModelForCausalLM,\n",
+    "    AutoTokenizer,\n",
+    "    BitsAndBytesConfig,\n",
+    "    HfArgumentParser,\n",
+    "    TrainingArguments,\n",
+    "    pipeline,\n",
+    "    logging,\n",
+    ")\n",
+    "from peft import (\n",
+    "    LoraConfig,\n",
+    "    PeftModel,\n",
+    "    prepare_model_for_kbit_training,\n",
+    "    get_peft_model,\n",
+    ")\n",
+    "import os, torch, wandb\n",
+    "from datasets import load_dataset\n",
+    "from trl import SFTTrainer, setup_chat_format\n",
+    "from kaggle_secrets import UserSecretsClient\n",
+    "user_secrets = UserSecretsClient()"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 4,
+   "id": "9eea93f0",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2024-10-30T20:06:47.560770Z",
+     "iopub.status.busy": "2024-10-30T20:06:47.559823Z",
+     "iopub.status.idle": "2024-10-30T20:06:50.646989Z",
+     "shell.execute_reply": "2024-10-30T20:06:50.645540Z"
+    },
+    "papermill": {
+     "duration": 3.094549,
+     "end_time": "2024-10-30T20:06:50.649867",
+     "exception": false,
+     "start_time": "2024-10-30T20:06:47.555318",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "\u001b[34m\u001b[1mwandb\u001b[0m: Using wandb-core as the SDK backend. Please refer to https://wandb.me/wandb-core for more information.\n",
+      "\u001b[34m\u001b[1mwandb\u001b[0m: W&B API key is configured. Use \u001b[1m`wandb login --relogin`\u001b[0m to force relogin\n",
+      "\u001b[34m\u001b[1mwandb\u001b[0m: \u001b[33mWARNING\u001b[0m If you're specifying your api key in code, ensure this code is not shared publicly.\n",
+      "\u001b[34m\u001b[1mwandb\u001b[0m: \u001b[33mWARNING\u001b[0m Consider setting the WANDB_API_KEY environment variable, or running `wandb login` from the command line.\n",
+      "\u001b[34m\u001b[1mwandb\u001b[0m: Appending key for api.wandb.ai to your netrc file: /root/.netrc\n",
+      "\u001b[34m\u001b[1mwandb\u001b[0m: Currently logged in as: \u001b[33movertheskyy\u001b[0m (\u001b[33movertheskyy-workspaces\u001b[0m). Use \u001b[1m`wandb login --relogin`\u001b[0m to force relogin\n",
+      "\u001b[34m\u001b[1mwandb\u001b[0m: Tracking run with wandb version 0.18.5\n",
+      "\u001b[34m\u001b[1mwandb\u001b[0m: Run data is saved locally in \u001b[35m\u001b[1m/kaggle/working/wandb/run-20241030_200648-vkg94knw\u001b[0m\n",
+      "\u001b[34m\u001b[1mwandb\u001b[0m: Run \u001b[1m`wandb offline`\u001b[0m to turn off syncing.\n",
+      "\u001b[34m\u001b[1mwandb\u001b[0m: Syncing run \u001b[33munraveling-riddle-7\u001b[0m\n",
+      "\u001b[34m\u001b[1mwandb\u001b[0m: ⭐️ View project at \u001b[34m\u001b[4mhttps://wandb.ai/overtheskyy-workspaces/try-connect-db\u001b[0m\n",
+      "\u001b[34m\u001b[1mwandb\u001b[0m: 🚀 View run at \u001b[34m\u001b[4mhttps://wandb.ai/overtheskyy-workspaces/try-connect-db/runs/vkg94knw\u001b[0m\n"
+     ]
+    }
+   ],
+   "source": [
+    "wb_token = user_secrets.get_secret(\"wandb\")\n",
+    "wandb.login(key=wb_token)\n",
+    "\n",
+    "run = wandb.init(project='try-connect-db', \n",
+    "    job_type=\"training\", \n",
+    "    anonymous=\"allow\",\n",
+    "    settings=wandb.Settings(start_method=\"fork\"))"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "f617ca53",
+   "metadata": {
+    "papermill": {
+     "duration": 0.003808,
+     "end_time": "2024-10-30T20:06:50.657903",
+     "exception": false,
+     "start_time": "2024-10-30T20:06:50.654095",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [],
+   "source": []
+  }
+ ],
+ "metadata": {
+  "kaggle": {
+   "accelerator": "none",
+   "dataSources": [
+    {
+     "modelId": 121027,
+     "modelInstanceId": 100931,
+     "sourceId": 120000,
+     "sourceType": "modelInstanceVersion"
+    }
+   ],
+   "dockerImageVersionId": 30786,
+   "isGpuEnabled": false,
+   "isInternetEnabled": true,
+   "language": "python",
+   "sourceType": "notebook"
+  },
+  "kernelspec": {
+   "display_name": "Python 3",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": "3.10.14"
+  },
+  "papermill": {
+   "default_parameters": {},
+   "duration": 193.812841,
+   "end_time": "2024-10-30T20:06:53.283207",
+   "environment_variables": {},
+   "exception": null,
+   "input_path": "__notebook__.ipynb",
+   "output_path": "__notebook__.ipynb",
+   "parameters": {},
+   "start_time": "2024-10-30T20:03:39.470366",
+   "version": "2.6.0"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 5
+}
